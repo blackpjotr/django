@@ -27,7 +27,7 @@ class AdminDocViewTests(TestDataMixin, AdminDocsTestCase):
         self.assertContains(response, "<h1>Documentation</h1>", html=True)
         self.assertContains(
             response,
-            '<h1 id="site-name"><a href="/admin/">Django administration</a></h1>',
+            '<div id="site-name"><a href="/admin/">Django administration</a></div>',
         )
         self.client.logout()
         response = self.client.get(reverse("django-admindocs-docroot"), follow=True)
@@ -148,12 +148,12 @@ class AdminDocViewTests(TestDataMixin, AdminDocsTestCase):
                 '<a href="https://docutils.sourceforge.io/">docutils</a> '
                 "library.</h3>"
                 "<p>Please ask your administrators to install "
-                '<a href="https://docutils.sourceforge.io/">docutils</a>.</p>',
+                '<a href="https://pypi.org/project/docutils/">docutils</a>.</p>',
                 html=True,
             )
             self.assertContains(
                 response,
-                '<h1 id="site-name"><a href="/admin/">Django administration</a></h1>',
+                '<div id="site-name"><a href="/admin/">Django administration</a></div>',
             )
         finally:
             utils.docutils_is_available = True
@@ -445,6 +445,16 @@ class TestFieldType(unittest.TestCase):
         self.assertEqual(
             views.get_readable_field_data_type(fields.BooleanField()),
             "Boolean (Either True or False)",
+        )
+
+    def test_char_fields(self):
+        self.assertEqual(
+            views.get_readable_field_data_type(fields.CharField(max_length=255)),
+            "String (up to 255)",
+        )
+        self.assertEqual(
+            views.get_readable_field_data_type(fields.CharField()),
+            "String (unlimited)",
         )
 
     def test_custom_fields(self):

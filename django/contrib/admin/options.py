@@ -1,4 +1,5 @@
 import copy
+import enum
 import json
 import re
 from functools import partial, update_wrapper
@@ -13,8 +14,7 @@ from django.contrib.admin.checks import (
     InlineModelAdminChecks,
     ModelAdminChecks,
 )
-from django.contrib.admin.decorators import display
-from django.contrib.admin.exceptions import DisallowedModelAdminToField
+from django.contrib.admin.exceptions import DisallowedModelAdminToField, NotRegistered
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.contrib.admin.utils import (
     NestedObjects,
@@ -69,6 +69,13 @@ from django.views.generic import RedirectView
 
 IS_POPUP_VAR = "_popup"
 TO_FIELD_VAR = "_to_field"
+IS_FACETS_VAR = "_facets"
+
+
+class ShowFacets(enum.Enum):
+    NEVER = "NEVER"
+    ALLOW = "ALLOW"
+    ALWAYS = "ALWAYS"
 
 
 HORIZONTAL, VERTICAL = 1, 2
@@ -178,23 +185,27 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
             # rendered output. formfield can be None if it came from a
             # OneToOneField with parent_link=True or a M2M intermediary.
             if formfield and db_field.name not in self.raw_id_fields:
-                related_modeladmin = self.admin_site._registry.get(
-                    db_field.remote_field.model
-                )
-                wrapper_kwargs = {}
-                if related_modeladmin:
-                    wrapper_kwargs.update(
-                        can_add_related=related_modeladmin.has_add_permission(request),
-                        can_change_related=related_modeladmin.has_change_permission(
-                            request
-                        ),
-                        can_delete_related=related_modeladmin.has_delete_permission(
-                            request
-                        ),
-                        can_view_related=related_modeladmin.has_view_permission(
-                            request
-                        ),
+                try:
+                    related_modeladmin = self.admin_site.get_model_admin(
+                        db_field.remote_field.model
                     )
+                except NotRegistered:
+                    wrapper_kwargs = {}
+                else:
+                    wrapper_kwargs = {
+                        "can_add_related": related_modeladmin.has_add_permission(
+                            request
+                        ),
+                        "can_change_related": related_modeladmin.has_change_permission(
+                            request
+                        ),
+                        "can_delete_related": related_modeladmin.has_delete_permission(
+                            request
+                        ),
+                        "can_view_related": related_modeladmin.has_view_permission(
+                            request
+                        ),
+                    }
                 formfield.widget = widgets.RelatedFieldWidgetWrapper(
                     formfield.widget,
                     db_field.remote_field,
@@ -239,8 +250,11 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
         ordering.  Otherwise don't specify the queryset, let the field decide
         (return None in that case).
         """
-        related_admin = self.admin_site._registry.get(db_field.remote_field.model)
-        if related_admin is not None:
+        try:
+            related_admin = self.admin_site.get_model_admin(db_field.remote_field.model)
+        except NotRegistered:
+            return None
+        else:
             ordering = related_admin.get_ordering(request)
             if ordering is not None and ordering != ():
                 return db_field.remote_field.model._default_manager.using(db).order_by(
@@ -429,7 +443,9 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
             else self.get_list_display(request)
         )
 
-    def lookup_allowed(self, lookup, value):
+    # RemovedInDjango60Warning: when the deprecation ends, replace with:
+    # def lookup_allowed(self, lookup, value, request):
+    def lookup_allowed(self, lookup, value, request=None):
         from django.contrib.admin.filters import SimpleListFilter
 
         model = self.model
@@ -454,12 +470,14 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
                 # Lookups on nonexistent fields are ok, since they're ignored
                 # later.
                 break
-            # It is allowed to filter on values that would be found from local
-            # model anyways. For example, if you filter on employee__department__id,
-            # then the id value would be found already from employee__department_id.
             if not prev_field or (
                 prev_field.is_relation
-                and field not in prev_field.path_infos[-1].target_fields
+                and field not in model._meta.parents.values()
+                and field is not model._meta.auto_field
+                and (
+                    model._meta.auto_field is None
+                    or part not in getattr(prev_field, "to_fields", [])
+                )
             ):
                 relation_parts.append(part)
             if not getattr(field, "path_infos", None):
@@ -473,7 +491,12 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
             # Either a local field filter, or no fields at all.
             return True
         valid_lookups = {self.date_hierarchy}
-        for filter_item in self.list_filter:
+        # RemovedInDjango60Warning: when the deprecation ends, replace with:
+        # for filter_item in self.get_list_filter(request):
+        list_filter = (
+            self.get_list_filter(request) if request is not None else self.list_filter
+        )
+        for filter_item in list_filter:
             if isinstance(filter_item, type) and issubclass(
                 filter_item, SimpleListFilter
             ):
@@ -561,7 +584,7 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
 
     def has_delete_permission(self, request, obj=None):
         """
-        Return True if the given request has permission to change the given
+        Return True if the given request has permission to delete the given
         Django model instance, the default implementation doesn't examine the
         `obj` parameter.
 
@@ -629,6 +652,7 @@ class ModelAdmin(BaseModelAdmin):
     save_on_top = False
     paginator = Paginator
     preserve_filters = True
+    show_facets = ShowFacets.ALLOW
     inlines = ()
 
     # Custom templates (designed to be over-ridden in subclasses)
@@ -962,12 +986,16 @@ class ModelAdmin(BaseModelAdmin):
             action_flag=DELETION,
         )
 
-    @display(description=mark_safe('<input type="checkbox" id="action-toggle">'))
     def action_checkbox(self, obj):
         """
         A list_display column containing a checkbox widget.
         """
-        return helpers.checkbox.render(helpers.ACTION_CHECKBOX_NAME, str(obj.pk))
+        attrs = {
+            "class": "action-select",
+            "aria-label": format_html(_("Select this object for an action - {}"), obj),
+        }
+        checkbox = forms.CheckboxInput(attrs, lambda value: False)
+        return checkbox.render(helpers.ACTION_CHECKBOX_NAME, str(obj.pk))
 
     @staticmethod
     def _get_action_description(func, name):
@@ -982,7 +1010,7 @@ class ModelAdmin(BaseModelAdmin):
         base_action_names = {name for _, name, _ in base_actions}
 
         # Gather actions from the admin site first
-        for (name, func) in self.admin_site.actions:
+        for name, func in self.admin_site.actions:
             if name in base_action_names:
                 continue
             description = self._get_action_description(func, name)
@@ -1106,14 +1134,15 @@ class ModelAdmin(BaseModelAdmin):
         Return a tuple containing a queryset to implement the search
         and a boolean indicating if the results may contain duplicates.
         """
+
         # Apply keyword searches.
         def construct_search(field_name):
             if field_name.startswith("^"):
-                return "%s__istartswith" % field_name[1:]
+                return "%s__istartswith" % field_name.removeprefix("^")
             elif field_name.startswith("="):
-                return "%s__iexact" % field_name[1:]
+                return "%s__iexact" % field_name.removeprefix("=")
             elif field_name.startswith("@"):
-                return "%s__search" % field_name[1:]
+                return "%s__search" % field_name.removeprefix("@")
             # Use field_name if it includes a lookup.
             opts = queryset.model._meta
             lookup_fields = field_name.split(LOOKUP_SEP)
@@ -1824,7 +1853,7 @@ class ModelAdmin(BaseModelAdmin):
             readonly_fields = flatten_fieldsets(fieldsets)
         else:
             readonly_fields = self.get_readonly_fields(request, obj)
-        adminForm = helpers.AdminForm(
+        admin_form = helpers.AdminForm(
             form,
             list(fieldsets),
             # Clear prepopulated fields on a view-only form to avoid a crash.
@@ -1834,13 +1863,13 @@ class ModelAdmin(BaseModelAdmin):
             readonly_fields,
             model_admin=self,
         )
-        media = self.media + adminForm.media
+        media = self.media + admin_form.media
 
         inline_formsets = self.get_inline_formsets(
             request, formsets, inline_instances, obj
         )
         for inline_formset in inline_formsets:
-            media = media + inline_formset.media
+            media += inline_formset.media
 
         if add:
             title = _("Add %s")
@@ -1852,7 +1881,7 @@ class ModelAdmin(BaseModelAdmin):
             **self.admin_site.each_context(request),
             "title": title % self.opts.verbose_name,
             "subtitle": str(obj) if obj else None,
-            "adminform": adminForm,
+            "adminform": admin_form,
             "object_id": object_id,
             "original": obj,
             "is_popup": IS_POPUP_VAR in request.POST or IS_POPUP_VAR in request.GET,
@@ -2011,15 +2040,17 @@ class ModelAdmin(BaseModelAdmin):
             )
             if formset.is_valid():
                 changecount = 0
-                for form in formset.forms:
-                    if form.has_changed():
-                        obj = self.save_form(request, form, change=True)
-                        self.save_model(request, obj, form, change=True)
-                        self.save_related(request, form, formsets=[], change=True)
-                        change_msg = self.construct_change_message(request, form, None)
-                        self.log_change(request, obj, change_msg)
-                        changecount += 1
-
+                with transaction.atomic(using=router.db_for_write(self.model)):
+                    for form in formset.forms:
+                        if form.has_changed():
+                            obj = self.save_form(request, form, change=True)
+                            self.save_model(request, obj, form, change=True)
+                            self.save_related(request, form, formsets=[], change=True)
+                            change_msg = self.construct_change_message(
+                                request, form, None
+                            )
+                            self.log_change(request, obj, change_msg)
+                            changecount += 1
                 if changecount:
                     msg = ngettext(
                         "%(count)s %(name)s was changed successfully.",
@@ -2259,7 +2290,7 @@ class ModelAdmin(BaseModelAdmin):
             formset_params = self.get_formset_kwargs(request, obj, inline, prefix)
             formset = FormSet(**formset_params)
 
-            def user_deleted_form(request, obj, formset, index):
+            def user_deleted_form(request, obj, formset, index, inline):
                 """Return whether or not the user deleted the form."""
                 return (
                     inline.has_delete_permission(request, obj)
@@ -2270,7 +2301,7 @@ class ModelAdmin(BaseModelAdmin):
             # data won't be in request.POST), unless the form was deleted.
             if not inline.has_change_permission(request, obj if change else None):
                 for index, form in enumerate(formset.initial_forms):
-                    if user_deleted_form(request, obj, formset, index):
+                    if user_deleted_form(request, obj, formset, index, inline):
                         continue
                     form._errors = {}
                     form.cleaned_data = form.initial

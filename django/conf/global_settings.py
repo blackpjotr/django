@@ -41,12 +41,7 @@ ALLOWED_HOSTS = []
 TIME_ZONE = "America/Chicago"
 
 # If you set this to True, Django will use timezone-aware datetimes.
-USE_TZ = False
-
-# RemovedInDjango50Warning: It's a transitional setting helpful in migrating
-# from pytz tzinfo to ZoneInfo(). Set True to continue using pytz tzinfo
-# objects during the Django 4.x release cycle.
-USE_DEPRECATED_PYTZ = False
+USE_TZ = True
 
 # Language code for this installation. All choices can be found here:
 # http://www.i18nguy.com/unicode/language-identifiers.html
@@ -146,6 +141,7 @@ LANGUAGES = [
     ("tr", gettext_noop("Turkish")),
     ("tt", gettext_noop("Tatar")),
     ("udm", gettext_noop("Udmurt")),
+    ("ug", gettext_noop("Uyghur")),
     ("uk", gettext_noop("Ukrainian")),
     ("ur", gettext_noop("Urdu")),
     ("uz", gettext_noop("Uzbek")),
@@ -155,7 +151,7 @@ LANGUAGES = [
 ]
 
 # Languages using BiDi (right-to-left) layout
-LANGUAGES_BIDI = ["he", "ar", "ar-dz", "ckb", "fa", "ur"]
+LANGUAGES_BIDI = ["he", "ar", "ar-dz", "ckb", "fa", "ug", "ur"]
 
 # If you set this to False, Django will make some optimizations so as not
 # to load the internationalization machinery.
@@ -170,11 +166,6 @@ LANGUAGE_COOKIE_PATH = "/"
 LANGUAGE_COOKIE_SECURE = False
 LANGUAGE_COOKIE_HTTPONLY = False
 LANGUAGE_COOKIE_SAMESITE = None
-
-
-# If you set this to True, Django will format dates, numbers and calendars
-# according to user current locale.
-USE_L10N = True
 
 # Not-necessarily-technical managers of the site. They get broken link
 # notifications and other various emails.
@@ -280,6 +271,15 @@ SECRET_KEY_FALLBACKS = []
 # Default file storage mechanism that holds media.
 DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
 # Absolute filesystem path to the directory that will hold user-uploaded files.
 # Example: "/var/www/example.com/media/"
 MEDIA_ROOT = ""
@@ -313,6 +313,10 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 2621440  # i.e. 2.5 MB
 # Maximum number of GET/POST parameters that will be read before a
 # SuspiciousOperation (TooManyFieldsSent) is raised.
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
+
+# Maximum number of files encoded in a multipart upload that will be read
+# before a SuspiciousOperation (TooManyFilesSent) is raised.
+DATA_UPLOAD_MAX_NUMBER_FILES = 100
 
 # Directory in which upload streamed files will be temporarily saved. A value of
 # `None` will make Django use the operating system's default temporary directory
@@ -568,10 +572,6 @@ CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_HEADER_NAME = "HTTP_X_CSRFTOKEN"
 CSRF_TRUSTED_ORIGINS = []
 CSRF_USE_SESSIONS = False
-
-# Whether to mask CSRF cookie value. It's a transitional setting helpful in
-# migrating multiple instance of the same project to Django 4.1+.
-CSRF_COOKIE_MASKED = False
 
 ############
 # MESSAGES #

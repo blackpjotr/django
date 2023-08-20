@@ -1084,9 +1084,10 @@ class MailTests(HeadersCheckMixin, SimpleTestCase):
             "@",
             "to@",
             "@example.com",
+            ("", ""),
         ):
             with self.subTest(email_address=email_address):
-                with self.assertRaises(ValueError):
+                with self.assertRaisesMessage(ValueError, "Invalid address"):
                     sanitize_address(email_address, encoding="utf-8")
 
     def test_sanitize_address_header_injection(self):
@@ -1234,8 +1235,8 @@ class BaseEmailBackendTests(HeadersCheckMixin):
 
     def test_send_long_lines(self):
         """
-        Email line length is limited to 998 chars by the RFC:
-        https://tools.ietf.org/html/rfc5322#section-2.1.1
+        Email line length is limited to 998 chars by the RFC 5322 Section
+        2.1.1.
         Message body containing longer lines are converted to Quoted-Printable
         to avoid having to insert newlines, which could be hairy to do properly.
         """

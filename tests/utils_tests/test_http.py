@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 from django.utils.datastructures import MultiValueDict
 from django.utils.http import (
     base36_to_int,
+    content_disposition_header,
     escape_leading_slashes,
     http_date,
     int_to_base36,
@@ -33,18 +34,7 @@ class URLEncodeTests(SimpleTestCase):
 
     def test_dict(self):
         result = urlencode({"a": 1, "b": 2, "c": 3})
-        # Dictionaries are treated as unordered.
-        self.assertIn(
-            result,
-            [
-                "a=1&b=2&c=3",
-                "a=1&c=3&b=2",
-                "b=2&a=1&c=3",
-                "b=2&c=3&a=1",
-                "c=3&a=1&b=2",
-                "c=3&b=2&a=1",
-            ],
-        )
+        self.assertEqual(result, "a=1&b=2&c=3")
 
     def test_dict_containing_sequence_not_doseq(self):
         self.assertEqual(urlencode({"a": [1, 2]}, doseq=False), "a=%5B1%2C+2%5D")
@@ -78,14 +68,7 @@ class URLEncodeTests(SimpleTestCase):
             ),
             doseq=True,
         )
-        # MultiValueDicts are similarly unordered.
-        self.assertIn(
-            result,
-            [
-                "name=Adrian&name=Simon&position=Developer",
-                "position=Developer&name=Adrian&name=Simon",
-            ],
-        )
+        self.assertEqual(result, "name=Adrian&name=Simon&position=Developer")
 
     def test_dict_with_bytes_values(self):
         self.assertEqual(urlencode({"a": b"abc"}, doseq=True), "a=abc")
@@ -329,7 +312,7 @@ class ETagProcessingTests(unittest.TestCase):
         )
         self.assertEqual(parse_etags("*"), ["*"])
 
-        # Ignore RFC 2616 ETags that are invalid according to RFC 7232.
+        # Ignore RFC 2616 ETags that are invalid according to RFC 9110.
         self.assertEqual(parse_etags(r'"etag", "e\"t\"ag"'), ['"etag"'])
 
     def test_quoting(self):
@@ -511,3 +494,28 @@ class ParseHeaderParameterTests(unittest.TestCase):
         for raw_line, expected_title in test_data:
             parsed = parse_header_parameters(raw_line)
             self.assertEqual(parsed[1]["title"], expected_title)
+
+
+class ContentDispositionHeaderTests(unittest.TestCase):
+    def test_basic(self):
+        tests = (
+            ((False, None), None),
+            ((False, "example"), 'inline; filename="example"'),
+            ((True, None), "attachment"),
+            ((True, "example"), 'attachment; filename="example"'),
+            (
+                (True, '"example" file\\name'),
+                'attachment; filename="\\"example\\" file\\\\name"',
+            ),
+            ((True, "espécimen"), "attachment; filename*=utf-8''esp%C3%A9cimen"),
+            (
+                (True, '"espécimen" filename'),
+                "attachment; filename*=utf-8''%22esp%C3%A9cimen%22%20filename",
+            ),
+        )
+
+        for (is_attachment, filename), expected in tests:
+            with self.subTest(is_attachment=is_attachment, filename=filename):
+                self.assertEqual(
+                    content_disposition_header(is_attachment, filename), expected
+                )

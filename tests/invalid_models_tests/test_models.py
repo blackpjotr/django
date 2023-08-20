@@ -747,6 +747,7 @@ class FieldNamesTests(TestCase):
         #13711 -- Model check for long M2M column names when database has
         column name length limits.
         """
+
         # A model with very long name which will be used to set relations to.
         class VeryLongModelNamezzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz(
             models.Model
@@ -1064,6 +1065,31 @@ class ShadowingFieldsTests(SimpleTestCase):
                     "The field 'clash' clashes with the field 'clash' "
                     "from model 'invalid_models_tests.grandparent'.",
                     obj=GrandChild._meta.get_field("clash"),
+                    id="models.E006",
+                )
+            ],
+        )
+
+    def test_diamond_mti_common_parent(self):
+        class GrandParent(models.Model):
+            pass
+
+        class Parent(GrandParent):
+            pass
+
+        class Child(Parent):
+            pass
+
+        class MTICommonParentModel(Child, GrandParent):
+            pass
+
+        self.assertEqual(
+            MTICommonParentModel.check(),
+            [
+                Error(
+                    "The field 'grandparent_ptr' clashes with the field "
+                    "'grandparent_ptr' from model 'invalid_models_tests.parent'.",
+                    obj=MTICommonParentModel,
                     id="models.E006",
                 )
             ],
@@ -1870,6 +1896,37 @@ class OtherModelTests(SimpleTestCase):
                 ),
             ],
         )
+
+
+@isolate_apps("invalid_models_tests")
+class DbTableCommentTests(TestCase):
+    def test_db_table_comment(self):
+        class Model(models.Model):
+            class Meta:
+                db_table_comment = "Table comment"
+
+        errors = Model.check(databases=self.databases)
+        expected = (
+            []
+            if connection.features.supports_comments
+            else [
+                Warning(
+                    f"{connection.display_name} does not support comments on tables "
+                    f"(db_table_comment).",
+                    obj=Model,
+                    id="models.W046",
+                ),
+            ]
+        )
+        self.assertEqual(errors, expected)
+
+    def test_db_table_comment_required_db_features(self):
+        class Model(models.Model):
+            class Meta:
+                db_table_comment = "Table comment"
+                required_db_features = {"supports_comments"}
+
+        self.assertEqual(Model.check(databases=self.databases), [])
 
 
 class MultipleAutoFieldsTests(TestCase):
@@ -2693,6 +2750,52 @@ class ConstraintsTests(TestCase):
                     models.UniqueConstraint(Lower("name"), name="lower_name_unq"),
                 ]
                 required_db_features = {"supports_expression_indexes"}
+
+        self.assertEqual(Model.check(databases=self.databases), [])
+
+    def test_unique_constraint_nulls_distinct(self):
+        class Model(models.Model):
+            name = models.CharField(max_length=10)
+
+            class Meta:
+                constraints = [
+                    models.UniqueConstraint(
+                        fields=["name"],
+                        name="name_uq_distinct_null",
+                        nulls_distinct=True,
+                    ),
+                ]
+
+        warn = Warning(
+            f"{connection.display_name} does not support unique constraints with nulls "
+            "distinct.",
+            hint=(
+                "A constraint won't be created. Silence this warning if you don't care "
+                "about it."
+            ),
+            obj=Model,
+            id="models.W047",
+        )
+        expected = (
+            []
+            if connection.features.supports_nulls_distinct_unique_constraints
+            else [warn]
+        )
+        self.assertEqual(Model.check(databases=self.databases), expected)
+
+    def test_unique_constraint_nulls_distinct_required_db_features(self):
+        class Model(models.Model):
+            name = models.CharField(max_length=10)
+
+            class Meta:
+                constraints = [
+                    models.UniqueConstraint(
+                        fields=["name"],
+                        name="name_uq_distinct_null",
+                        nulls_distinct=True,
+                    ),
+                ]
+                required_db_features = {"supports_nulls_distinct_unique_constraints"}
 
         self.assertEqual(Model.check(databases=self.databases), [])
 
