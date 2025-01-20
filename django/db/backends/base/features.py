@@ -263,6 +263,7 @@ class BaseDatabaseFeatures:
     # Does the backend support window expressions (expression OVER (...))?
     supports_over_clause = False
     supports_frame_range_fixed_distance = False
+    supports_frame_exclusion = False
     only_supports_unbounded_with_preceding_and_following = False
 
     # Does the backend support CAST with precision?
@@ -353,6 +354,11 @@ class BaseDatabaseFeatures:
     # Does the backend support column comments in ADD COLUMN statements?
     supports_comments_inline = False
 
+    # Does the backend support stored generated columns?
+    supports_stored_generated_columns = False
+    # Does the backend support virtual generated columns?
+    supports_virtual_generated_columns = False
+
     # Does the backend support the logical XOR operator?
     supports_logical_xor = False
 
@@ -368,12 +374,16 @@ class BaseDatabaseFeatures:
         "cs": None,  # Case-sensitive.
         "non_default": None,  # Non-default.
         "swedish_ci": None,  # Swedish case-insensitive.
+        "virtual": None,  # A collation that can be used for virtual columns.
     }
     # SQL template override for tests.aggregation.tests.NowUTC
     test_now_utc_template = None
 
     # SQL to create a model instance using the database defaults.
     insert_test_table_with_defaults = None
+
+    # Does the Round() database function round to even?
+    rounds_to_even = False
 
     # A set of dotted paths to tests in Django's test suite that are expected
     # to fail on this database.

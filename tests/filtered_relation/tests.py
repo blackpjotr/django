@@ -668,6 +668,19 @@ class FilteredRelationTests(TestCase):
                 ),
             )
 
+    def test_condition_deeper_relation_name_implicit_exact(self):
+        msg = (
+            "FilteredRelation's condition doesn't support nested relations "
+            "deeper than the relation_name (got 'book__editor__name' for 'book')."
+        )
+        with self.assertRaisesMessage(ValueError, msg):
+            Author.objects.annotate(
+                book_editor=FilteredRelation(
+                    "book",
+                    condition=Q(book__editor__name="b"),
+                ),
+            )
+
     def test_with_empty_relation_name_error(self):
         with self.assertRaisesMessage(ValueError, "relation_name cannot be empty."):
             FilteredRelation("", condition=Q(blank=""))
@@ -791,6 +804,52 @@ class FilteredRelationTests(TestCase):
             ),
         ).filter(my_books__isnull=True)
         self.assertSequenceEqual(qs, [])
+
+    def test_conditional_expression_rhs_contains_relation_name(self):
+        qs = Book.objects.annotate(
+            rel=FilteredRelation(
+                "editor",
+                condition=Q(id=1 * F("number_editor")),
+            )
+        ).filter(rel__isnull=True)
+        self.assertSequenceEqual(qs, [])
+
+    def test_conditional_expression_rhs_startswith_relation_name(self):
+        qs = Book.objects.annotate(
+            rel=FilteredRelation(
+                "editor",
+                condition=Q(id=1 * F("editor_number")),
+            )
+        ).filter(rel__isnull=True)
+        self.assertSequenceEqual(qs, [])
+
+    def test_conditional_expression_lhs_startswith_relation_name(self):
+        qs = Book.objects.annotate(
+            rel=FilteredRelation(
+                "editor",
+                condition=Q(editor_number__gt=1),
+            )
+        ).filter(rel__isnull=True)
+        self.assertSequenceEqual(qs, [])
+
+    def test_conditional_expression_lhs_contains_relation_name(self):
+        qs = Book.objects.annotate(
+            rel=FilteredRelation(
+                "editor",
+                condition=Q(number_editor__gt=1),
+            )
+        ).filter(rel__isnull=True)
+        self.assertSequenceEqual(qs, [])
+
+    def test_conditional_expression_does_not_support_queryset(self):
+        msg = "Passing a QuerySet within a FilteredRelation is not supported."
+        with self.assertRaisesMessage(ValueError, msg):
+            Author.objects.annotate(
+                poem_book=FilteredRelation(
+                    "book",
+                    condition=Q(book__in=Book.objects.filter(title__istartswith="a")),
+                ),
+            ).filter(poem_book__isnull=False)
 
 
 class FilteredRelationAggregationTests(TestCase):

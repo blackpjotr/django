@@ -249,11 +249,6 @@ Note:
         sitemap was requested is used. If the sitemap is built outside the
         context of a request, the default is ``'https'``.
 
-        .. versionchanged:: 5.0
-
-            In older versions, the default protocol for sitemaps built outside
-            the context of a request was ``'http'``.
-
     .. attribute:: Sitemap.limit
 
         **Optional.**
@@ -315,8 +310,6 @@ Note:
           items returned by :meth:`Sitemap.items`.
 
     .. method:: Sitemap.get_languages_for_item(item)
-
-        .. versionadded:: 4.2
 
         **Optional.** A method that returns the sequence of language codes for
         which the item is displayed. By default
@@ -570,7 +563,7 @@ generate a Google News compatible sitemap:
     <?xml version="1.0" encoding="UTF-8"?>
     <urlset
       xmlns="https://www.sitemaps.org/schemas/sitemap/0.9"
-      xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+      xmlns:news="https://www.google.com/schemas/sitemap-news/0.9">
     {% spaceless %}
     {% for url in urlset %}
       <url>
